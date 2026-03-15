@@ -12,9 +12,14 @@ MeetingMind Architecture Expert - 架构专家评审 Agent
 """
 
 import re
-from typing import List, Dict, Tuple
+import logging
+from typing import List, Dict, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime
+
+from .utils import measure_time
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -47,21 +52,34 @@ class ArchitectureExpert:
             'risk': '风险评估 - 潜在问题和缓解措施',
             'resource_match': '资源匹配 - 人力/时间/技术栈匹配度'
         }
+        logger.info("初始化架构专家评审 Agent")
     
+    @measure_time
     def review_meeting_architecture(self, minutes: str) -> str:
         """
         评审会议中的架构相关决策
-        
+
         Args:
             minutes: 会议纪要内容
-            
+
         Returns:
             Markdown格式的架构评审报告
         """
+        if not minutes or not minutes.strip():
+            raise ValueError("会议纪要不能为空")
+
+        logger.info("开始架构评审...")
+
         # 解析会议内容
         decisions = self._extract_decisions(minutes)
         action_items = self._extract_action_items(minutes)
         risks = self._extract_risks(minutes)
+
+        logger.debug(
+            f"提取到: {len(decisions)} 个决策, "
+            f"{len(action_items)} 个行动项, "
+            f"{len(risks)} 个风险"
+        )
         
         # 执行多维度评审
         feasibility = self._assess_feasibility(decisions, action_items)
@@ -84,7 +102,9 @@ class ArchitectureExpert:
             ),
             tech_debt_alerts=self._identify_tech_debt(minutes, decisions)
         )
-        
+
+        logger.info(f"架构评审完成: {review.overall_assessment}, 风险等级: {review.risk_level}")
+
         return self._generate_markdown_report(review, decisions)
     
     def _extract_decisions(self, minutes: str) -> List[Dict]:
