@@ -22,11 +22,14 @@ import time
 import functools
 import tracemalloc
 import gc
+import logging
 from typing import Dict, List, Callable, Any, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from collections import defaultdict
 import json
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass

@@ -2,7 +2,7 @@
 """
 MeetingMind - 智能会议纪要系统
 ═══════════════════════════════════════════════════════════════
-版本: 2.2.0
+版本: 2.3.0
 日期: 2026-03-15
 
 架构: 多Agent协作系统
@@ -11,13 +11,20 @@ MeetingMind - 智能会议纪要系统
   - Summarizer Agent: 纪要生成
   - Evaluator Agent: 质量评价
   - ArchitectureExpert Agent: 架构评审
-  - PerformanceProfiler Agent: 性能分析 (v2.2新增)
+  - PerformanceProfiler Agent: 性能分析
+
+更新 (v2.3.0):
+  - 统一配置管理系统
+  - 完善日志系统
+  - 添加API重试机制
+  - 优化类型注解
+  - 添加单元测试框架
 
 作者: MeetingMind Team
 ═══════════════════════════════════════════════════════════════
 """
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 __author__ = "MeetingMind Team"
 __date__ = "2026-03-15"
 
@@ -25,14 +32,18 @@ import os
 import sys
 import json
 import argparse
+import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from core.config import AppConfig, get_config
 from core.evaluator import MeetingEvaluator
 from core.architecture_expert import ArchitectureExpert
 from core.profiler import PerformanceProfiler
+
+logger = logging.getLogger(__name__)
 
 
 def print_banner():
@@ -53,17 +64,6 @@ def print_banner():
     print("  └──────────────┴──────────────┴──────────────────────────┘")
     print("═" * 70)
     print()
-
-
-def load_config() -> Dict[str, str]:
-    """加载配置文件"""
-    config = {
-        'version': __version__,
-        'api_key': os.getenv('ANTHROPIC_API_KEY', ''),
-        'base_url': os.getenv('ANTHROPIC_BASE_URL', 'https://open.bigmodel.cn/api/paas/v4'),
-        'model': os.getenv('ANTHROPIC_MODEL', 'glm-4.7'),
-    }
-    return config
 
 
 def mock_transcript() -> str:
@@ -103,19 +103,22 @@ def mock_transcript() -> str:
 李四: 散会。"""
 
 
-def generate_minutes(transcript: str, include_arch_review: bool = False) -> Dict[str, Any]:
+def generate_minutes(
+    transcript: str,
+    include_arch_review: bool = False
+) -> Dict[str, Any]:
     """
     生成会议纪要 (包含可选的架构评审)
-    
+
     Args:
         transcript: 会议转录文本
         include_arch_review: 是否包含架构专家评审
-    
+
     Returns:
         包含纪要、评价报告、架构评审报告的字典
     """
-    from datetime import datetime
-    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
     # 生成结构化纪要 (模拟LLM输出)
     minutes = f"""# Q2产品规划会议纪要
 
@@ -185,76 +188,78 @@ def generate_minutes(transcript: str, include_arch_review: bool = False) -> Dict
 
 ---
 
-*纪要生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*  
+*纪要生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
 *生成工具: MeetingMind v{__version__}*
 """
-    
+
     result = {
         'minutes': minutes,
         'transcript': transcript,
-        'timestamp': datetime.now().strftime('%Y%m%d_%H%M%S')
+        'timestamp': timestamp
     }
-    
+
     # Evaluator Agent 评价
-    print("🎯 Evaluator Agent 进行质量评价...")
+    logger.info("🎯 Evaluator Agent 进行质量评价...")
     evaluator = MeetingEvaluator()
     eval_result = evaluator.evaluate(transcript, minutes)
     result['evaluation'] = eval_result
     result['evaluation_report'] = evaluator.generate_report(eval_result, 'markdown')
-    print(f"   ✅ 评价完成: {eval_result.overall_score}/100")
-    
+    logger.info(f"   ✅ 评价完成: {eval_result.overall_score}/100")
+
     # Architecture Expert 评审 (可选)
     if include_arch_review:
-        print("🏛️ Architecture Expert 进行架构评审...")
+        logger.info("🏛️ Architecture Expert 进行架构评审...")
         expert = ArchitectureExpert()
         arch_review = expert.review_meeting_architecture(minutes)
         result['architecture_review'] = arch_review
-        print(f"   ✅ 架构评审完成")
-    
+        logger.info("   ✅ 架构评审完成")
+
     return result
 
 
 def save_outputs(result: Dict[str, Any], output_dir: str = ".") -> None:
     """保存所有输出文件"""
     timestamp = result['timestamp']
-    
+    os.makedirs(output_dir, exist_ok=True)
+
     # 保存会议纪要
     minutes_file = os.path.join(output_dir, f"meeting_minutes_{timestamp}.md")
     with open(minutes_file, 'w', encoding='utf-8') as f:
         f.write(result['minutes'])
-    print(f"   ✅ 会议纪要: {minutes_file}")
-    
+    logger.info(f"   ✅ 会议纪要: {minutes_file}")
+
     # 保存评价报告
     eval_file = os.path.join(output_dir, f"evaluation_report_{timestamp}.md")
     with open(eval_file, 'w', encoding='utf-8') as f:
         f.write(result['evaluation_report'])
-    print(f"   ✅ 评价报告: {eval_file}")
-    
+    logger.info(f"   ✅ 评价报告: {eval_file}")
+
     # 保存JSON数据
-    json_file = os.path.join(output_dir, f"meeting_data_{timestamp}.json")
-    json_data = {
-        'version': __version__,
-        'timestamp': timestamp,
-        'transcript': result['transcript'],
-        'minutes': result['minutes'],
-        'evaluation': {
-            'overall_score': result['evaluation'].overall_score,
-            'dimensions': result['evaluation'].dimensions,
-            'strengths': result['evaluation'].strengths,
-            'weaknesses': result['evaluation'].weaknesses,
-            'suggestions': result['evaluation'].suggestions,
+    if result.get('evaluation'):
+        json_file = os.path.join(output_dir, f"meeting_data_{timestamp}.json")
+        json_data = {
+            'version': __version__,
+            'timestamp': timestamp,
+            'transcript': result['transcript'],
+            'minutes': result['minutes'],
+            'evaluation': {
+                'overall_score': result['evaluation'].overall_score,
+                'dimensions': result['evaluation'].dimensions,
+                'strengths': result['evaluation'].strengths,
+                'weaknesses': result['evaluation'].weaknesses,
+                'suggestions': result['evaluation'].suggestions,
+            }
         }
-    }
-    with open(json_file, 'w', encoding='utf-8') as f:
-        json.dump(json_data, f, ensure_ascii=False, indent=2)
-    print(f"   ✅ JSON数据: {json_file}")
-    
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, ensure_ascii=False, indent=2)
+        logger.info(f"   ✅ JSON数据: {json_file}")
+
     # 保存架构评审报告 (如果有)
     if 'architecture_review' in result:
         arch_file = os.path.join(output_dir, f"architecture_review_{timestamp}.md")
         with open(arch_file, 'w', encoding='utf-8') as f:
             f.write(result['architecture_review'])
-        print(f"   ✅ 架构评审: {arch_file}")
+        logger.info(f"   ✅ 架构评审: {arch_file}")
 
 
 def main():
@@ -275,56 +280,74 @@ def main():
     parser.add_argument('--profile', action='store_true', help='启用性能分析')
     parser.add_argument('--output-dir', default='.', help='输出目录')
     parser.add_argument('--input', help='输入音频/文本文件路径')
-    
+    parser.add_argument('--config', help='配置文件路径 (JSON/TOML)')
+    parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+                        default='INFO', help='日志级别')
+
     args = parser.parse_args()
-    
+
     print_banner()
-    
+
+    # 加载配置
+    if args.config:
+        logger.info(f"从文件加载配置: {args.config}")
+        config = AppConfig.from_file(args.config)
+    else:
+        config = get_config()
+
+    # 设置日志级别
+    config.logging.level = args.log_level
+    config.setup_logging()
+
+    logger.info(f"MeetingMind v{__version__} 启动")
+    logger.info(f"配置: API={config.api.model}, 输出目录={args.output_dir}")
+
+    # 验证配置
+    errors = config.validate()
+    if errors:
+        logger.warning("配置验证发现问题:")
+        for error in errors:
+            logger.warning(f"  - {error}")
+
+    if not config.api.api_key:
+        logger.warning("未配置 API Key，将使用演示模式")
+
     # 初始化性能分析器
     profiler = None
     if args.profile:
-        from core.profiler import PerformanceProfiler
         profiler = PerformanceProfiler()
-        print("🚀 Performance Profiler 已启用\n")
-    
-    # 加载配置
-    config = load_config()
-    if not config['api_key']:
-        print("⚠️  警告: 未配置 API Key，将使用演示模式\n")
-    
+        logger.info("🚀 Performance Profiler 已启用")
+
     # 获取输入
     if args.input:
-        print(f"📁 从文件加载: {args.input}")
-        # 实际项目中这里应该处理音频文件
-        transcript = mock_transcript()
+        logger.info(f"📁 从文件加载: {args.input}")
+        transcript = mock_transcript()  # 实际应读取文件
     else:
-        print("🎬 演示模式: 使用模拟会议数据\n")
+        logger.info("🎬 演示模式: 使用模拟会议数据")
         input("按回车开始...")
         transcript = mock_transcript()
-    
+
     # 生成纪要
-    print("\n" + "─" * 70)
-    print("🚀 开始生成会议纪要...")
-    print("─" * 70)
-    
+    logger.info("🚀 开始生成会议纪要...")
+
     if profiler:
         with profiler.measure("总体流程"):
             result = generate_minutes(transcript, include_arch_review=args.arch_review)
         profiler.print_summary()
     else:
         result = generate_minutes(transcript, include_arch_review=args.arch_review)
-    
+
     # 保存输出
-    print("\n💾 保存输出文件...")
+    logger.info("💾 保存输出文件...")
     save_outputs(result, args.output_dir)
-    
+
     # 保存性能报告 (如果启用)
     if profiler:
         perf_file = os.path.join(args.output_dir, f"performance_report_{result['timestamp']}.md")
         with open(perf_file, 'w', encoding='utf-8') as f:
             f.write(profiler.generate_report('markdown'))
-        print(f"   ✅ 性能报告: {perf_file}")
-    
+        logger.info(f"   ✅ 性能报告: {perf_file}")
+
     # 显示摘要
     print("\n" + "═" * 70)
     print("📊 生成摘要")
@@ -332,17 +355,19 @@ def main():
     print(f"总体评分: {result['evaluation'].overall_score}/100")
     print(f"行动项数: {result['evaluation'].action_items_quality['count']} 项")
     print(f"质量等级: {result['evaluation'].summary}")
-    
+
     if args.arch_review:
         print("✅ 已生成架构评审报告")
-    
+
     if args.profile:
         print("✅ 已生成性能分析报告")
-    
+
     print("\n" + "═" * 70)
     print("✨ MeetingMind 处理完成!")
     print(f"版本: v{__version__}")
     print("═" * 70)
+
+    logger.info("处理完成")
 
 
 if __name__ == '__main__':
